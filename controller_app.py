@@ -137,11 +137,7 @@ def proxy(node_id: str, path: str):
 def wg_peers_status() -> dict:
     """
     Returns:
-      {
-        "<pubkey>": {
-          "last_handshake": seconds_ago or None
-        }
-      }
+      { "<pubkey>": { "last_handshake": seconds_ago or None } }
     """
     out = subprocess.check_output(
         ["wg", "show", WG_IFACE, "dump"],
@@ -150,25 +146,25 @@ def wg_peers_status() -> dict:
 
     peers = {}
 
-    # wg dump format:
-    # iface priv pub listen fwmark
-    # peer_pub preshared endpoint allowed_ips last_handshake rx tx keepalive
+    # wg dump:
+    # line0: iface priv pub listen fwmark
+    # peer lines:
+    # peer_pub preshared endpoint allowed_ips latest_handshake rx tx keepalive
     for line in out[1:]:
         parts = line.split("\t")
-        if len(parts) < 9:
+        if len(parts) < 8:
             continue
 
         peer_pub = parts[0]
-        last_handshake = int(parts[5])
+        latest_handshake = int(parts[4])  # <-- ВОТ ТУТ был баг (не 5, а 4)
 
-        if last_handshake == 0:
+        if latest_handshake == 0:
             peers[peer_pub] = {"last_handshake": None}
         else:
-            peers[peer_pub] = {
-                "last_handshake": int(time.time()) - last_handshake
-            }
+            peers[peer_pub] = {"last_handshake": int(time.time()) - latest_handshake}
 
     return peers
+
 
 
 def check_node_api(ip: str, timeout: int = 3) -> bool:
