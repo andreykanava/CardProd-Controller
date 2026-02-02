@@ -132,3 +132,120 @@ def proxy(node_id: str, path: str):
         return (r.text, r.status_code, {"Content-Type": r.headers.get("Content-Type", "application/json")})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 502
+
+
+def wg_peers_status() -> dict:
+    """
+    Returns:
+      {
+        "<pubkey>": {
+          "last_handshake": seconds_ago or None
+        }
+      }
+    """
+    out = subprocess.check_output(
+        ["wg", "show", WG_IFACE, "dump"],
+        text=True
+    ).strip().splitlines()
+
+    peers = {}
+
+    # wg dump format:
+    # iface priv pub listen fwmark
+    # peer_pub preshared endpoint allowed_ips last_handshake rx tx keepalive
+    for line in out[1:]:
+        parts = line.split("\t")
+        if len(parts) < 9:
+            continue
+
+        peer_pub = parts[0]
+        last_handshake = int(parts[5])
+
+        if last_handshake == 0:
+            peers[peer_pub] = {"last_handshake": None}
+        else:
+            peers[peer_pub] = {
+                "last_handshake": int(time.time()) - last_handshake
+            }
+
+    return peers
+
+
+def check_node_api(ip: str, timeout: int = 3) -> bool:
+    try:
+        r = requests.get(f"http://{ip}:{os.environ.get('NODE_API_PORT','8000')}/health",
+                         timeout=timeout)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+
+@app.get("/nodes")
+def list_nodes():
+    peers = load_peers()
+    wg_status = wg_peers_status()
+
+    nodes = []
+
+    for node_id, info in peers.items():
+        ip = info["ip"]
+        pub = info["pubkey"]
+
+        wg_info = wg_status.get(pub, {})
+        handshake = wg_info.get("last_handshake")
+
+        wireguard_up = handshake is not None and handshake < 120
+        api_ok = check_node_api(ip)
+
+        nodes.append({
+            "node_id": node_id,
+            "ip": ip,
+            "wireguard": {
+                "connected": wireguard_up,
+                "last_handshake_seconds": handshake,
+            },
+            "api": {
+                "reachable": api_ok,
+            },
+            "online": wireguard_up and api_ok,
+        })
+
+    return jsonify({"ok": True, "nodes": nodes})
+
+
+
+
+
+@app.get("/nodes/<node_id>")
+def get_node(node_id: str):
+    peers = load_peers()
+    if node_id not in peers:
+        return jsonify({"ok": False, "error": "node not found"}), 404
+
+    info = peers[node_id]
+    ip = info["ip"]
+    pub = info["pubkey"]
+
+    wg_status = wg_peers_status().get(pub, {})
+    handshake = wg_status.get("last_handshake")
+
+    wireguard_up = handshake is not None and handshake < 120
+    api_ok = check_node_api(ip)
+
+    return jsonify({
+        "ok": True,
+        "node": {
+            "node_id": node_id,
+            "ip": ip,
+            "wireguard": {
+                "connected": wireguard_up,
+                "last_handshake_seconds": handshake,
+            },
+            "api": {
+                "reachable": api_ok,
+            },
+            "online": wireguard_up and api_ok,
+        }
+    })
+
