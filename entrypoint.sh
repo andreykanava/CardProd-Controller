@@ -42,4 +42,11 @@ print("restored peers:", len(peers))
 PY
 fi
 
-exec gunicorn -b 0.0.0.0:9000 controller_app:app
+exec gunicorn -b 0.0.0.0:9000 \
+  --workers 1 \
+  --threads 8 \
+  --timeout 180 \
+  --access-logfile - \
+  --error-logfile - \
+  controller_app:app
+
