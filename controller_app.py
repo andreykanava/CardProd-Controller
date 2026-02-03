@@ -54,6 +54,15 @@ def add_peer_to_wg(node_pubkey: str, node_ip: str) -> None:
     # wg set wg0 peer <pub> allowed-ips <ip>/32
     sh("wg", "set", WG_IFACE, "peer", node_pubkey, "allowed-ips", f"{node_ip}/32")
 
+def sync_peers_to_wg() -> None:
+    peers = load_peers()
+    for node_id, info in peers.items():
+        try:
+            add_peer_to_wg(info["pubkey"], info["ip"])
+        except Exception as e:
+            print(f"[!] failed to sync peer {node_id}: {e}")
+
+
 @app.get("/health")
 def health():
     return jsonify({"ok": True})
@@ -77,11 +86,28 @@ def join():
 
     peers = load_peers()
 
-    # already registered
+    # registered already -> keep same IP, but allow key rotation
     if node_id in peers:
         info = peers[node_id]
-        # ensure peer exists in live wg (idempotent)
+        changed = False
+
+        # key rotation support
+        if info.get("pubkey") != node_pubkey:
+            info["pubkey"] = node_pubkey
+            changed = True
+
+        # sanity: make sure IP exists
+        if "ip" not in info or not info["ip"]:
+            info["ip"] = pick_free_ip(peers)
+            changed = True
+
+        if changed:
+            peers[node_id] = info
+            save_peers(peers)
+
+        # always ensure peer exists in live wg (idempotent)
         add_peer_to_wg(info["pubkey"], info["ip"])
+
         return jsonify({
             "ok": True,
             "node_id": node_id,
@@ -92,6 +118,7 @@ def join():
             "wg_net": str(WG_NET),
         })
 
+    # new node -> assign ip + save
     node_ip = pick_free_ip(peers)
     peers[node_id] = {"ip": node_ip, "pubkey": node_pubkey}
     save_peers(peers)
@@ -107,6 +134,7 @@ def join():
         "allowed_ips": f"{CONTROLLER_IP}/32",
         "wg_net": str(WG_NET),
     })
+
 
 # простой прокси: controller дергает node-api по WG-IP
 @app.route("/nodes/<node_id>/proxy/<path:path>", methods=["GET", "POST", "DELETE"])
