@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from flask import Flask, request, jsonify
 import time
+import requests
 
 app = Flask(__name__)
 
@@ -150,13 +151,20 @@ def proxy(node_id: str, path: str):
 
     url = f"http://{node_ip}:{node_port}/{path}"
 
+    # NEW: add X-Portmap-Token only for /ports endpoints
+    headers = {}
+    if path == "ports" or path.startswith("ports/"):
+        tok = NODE_PORTMAP_TOKENS.get(node_id, "")
+        if tok:
+            headers["X-Portmap-Token"] = tok
+
     try:
         if request.method == "GET":
-            r = requests.get(url, params=request.args, timeout=120)
+            r = requests.get(url, params=request.args, headers=headers, timeout=120)
         elif request.method == "POST":
-            r = requests.post(url, json=request.get_json(silent=True), params=request.args, timeout=120)
+            r = requests.post(url, json=request.get_json(silent=True), params=request.args, headers=headers, timeout=120)
         else:
-            r = requests.delete(url, params=request.args, timeout=120)
+            r = requests.delete(url, params=request.args, headers=headers, timeout=120)
 
         return (r.text, r.status_code, {"Content-Type": r.headers.get("Content-Type", "application/json")})
     except Exception as e:
@@ -274,3 +282,42 @@ def get_node(node_id: str):
         }
     })
 
+
+EDGE_WG_IP = os.environ.get("EDGE_WG_IP", "").strip()          # 10.50.0.2
+EDGE_AGENT_PORT = int(os.environ.get("EDGE_AGENT_PORT", "8081"))
+EDGE_AGENT_TOKEN = os.environ.get("EDGE_AGENT_TOKEN", "").strip()
+NODE_PORTMAP_TOKENS = json.loads(os.environ.get("NODE_PORTMAP_TOKENS", "{}") or "{}")
+
+
+@app.route("/edge/<path:path>", methods=["GET", "POST", "DELETE"])
+def edge_proxy(path: str):
+    """
+    Controller -> Proxy-Agent (FastAPI) proxy.
+    Adds X-Agent-Token automatically.
+    """
+    if not EDGE_WG_IP:
+        return jsonify({"ok": False, "error": "EDGE_WG_IP not set"}), 500
+    if not EDGE_AGENT_TOKEN:
+        return jsonify({"ok": False, "error": "EDGE_AGENT_TOKEN not set"}), 500
+
+    url = f"http://{EDGE_WG_IP}:{EDGE_AGENT_PORT}/{path}"
+
+    headers = {"X-Agent-Token": EDGE_AGENT_TOKEN}
+
+    try:
+        if request.method == "GET":
+            r = requests.get(url, params=request.args, headers=headers, timeout=120)
+        elif request.method == "POST":
+            r = requests.post(
+                url,
+                json=request.get_json(silent=True),
+                params=request.args,
+                headers=headers,
+                timeout=120,
+            )
+        else:
+            r = requests.delete(url, params=request.args, headers=headers, timeout=120)
+
+        return (r.text, r.status_code, {"Content-Type": r.headers.get("Content-Type", "application/json")})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
