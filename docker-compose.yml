@@ -13,6 +13,9 @@ services:
       - JOIN_TOKEN=${JOIN_TOKEN}            # секрет для join
       - NODE_API_PORT=8000
       - PEERS_FILE=/data/peers.json
+      - EDGE_WG_IP=${EDGE_WG_IP}
+      - EDGE_AGENT_PORT=${EDGE_AGENT_PORT}
+
     volumes:
       - wg_controller_data:/data
       - /lib/modules:/lib/modules:ro

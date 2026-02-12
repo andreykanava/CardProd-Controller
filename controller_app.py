@@ -285,7 +285,7 @@ def get_node(node_id: str):
 
 EDGE_WG_IP = os.environ.get("EDGE_WG_IP", "").strip()          # 10.50.0.2
 EDGE_AGENT_PORT = int(os.environ.get("EDGE_AGENT_PORT", "8081"))
-EDGE_AGENT_TOKEN = os.environ.get("EDGE_AGENT_TOKEN", "").strip()
+#EDGE_AGENT_TOKEN = os.environ.get("EDGE_AGENT_TOKEN", "").strip()
 NODE_PORTMAP_TOKENS = json.loads(os.environ.get("NODE_PORTMAP_TOKENS", "{}") or "{}")
 
 
@@ -297,22 +297,21 @@ def edge_proxy(path: str):
     """
     if not EDGE_WG_IP:
         return jsonify({"ok": False, "error": "EDGE_WG_IP not set"}), 500
-    if not EDGE_AGENT_TOKEN:
-        return jsonify({"ok": False, "error": "EDGE_AGENT_TOKEN not set"}), 500
+#    if not EDGE_AGENT_TOKEN:
+ #       return jsonify({"ok": False, "error": "EDGE_AGENT_TOKEN not set"}), 500
 
     url = f"http://{EDGE_WG_IP}:{EDGE_AGENT_PORT}/{path}"
 
-    headers = {"X-Agent-Token": EDGE_AGENT_TOKEN}
+ #   headers = {"X-Agent-Token": EDGE_AGENT_TOKEN}
 
     try:
         if request.method == "GET":
-            r = requests.get(url, params=request.args, headers=headers, timeout=120)
+            r = requests.get(url, params=request.args, timeout=120)
         elif request.method == "POST":
             r = requests.post(
                 url,
                 json=request.get_json(silent=True),
                 params=request.args,
-                headers=headers,
                 timeout=120,
             )
         else:
